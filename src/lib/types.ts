@@ -20,4 +20,4 @@ export interface Stats {
 	newCards: number;
 }
 
-export type AppState = 'loading' | 'file-picker' | 'migration' | 'ready' | 'error';
+export type AppState = 'loading' | 'file-picker' | 'migration' | 'permission-needed' | 'ready' | 'error';

@@ -11,9 +11,9 @@
 	];
 </script>
 
-<nav class="border-b border-border bg-background px-4 py-3">
-	<div class="mx-auto flex max-w-4xl items-center gap-2">
-		<span class="mr-4 text-lg font-bold">VokabelTrainer</span>
+<nav class="border-b border-border bg-background px-3 py-2 sm:px-4 sm:py-3">
+	<div class="mx-auto flex max-w-4xl items-center gap-1 sm:gap-2">
+		<span class="hidden sm:mr-4 sm:inline sm:text-lg sm:font-bold">VokabelTrainer</span>
 		<div class="flex gap-1">
 			{#each links as { href, label, icon: Icon }}
 				<Button
@@ -22,7 +22,7 @@
 					size="sm"
 				>
 					<Icon class="size-4" />
-					{label}
+					<span class="hidden sm:inline">{label}</span>
 				</Button>
 			{/each}
 		</div>

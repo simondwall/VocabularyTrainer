@@ -15,21 +15,21 @@
 	} = $props();
 </script>
 
-<div class="flex gap-2">
+<div class="flex flex-wrap gap-2">
 	<Button variant="outline" size="sm" onclick={onNew}>
 		<Plus class="size-4" />
-		Neu
+		<span class="hidden sm:inline">Neu</span>
 	</Button>
 	<Button variant="outline" size="sm" onclick={onOpen}>
 		<FolderOpen class="size-4" />
-		Öffnen
+		<span class="hidden sm:inline">Öffnen</span>
 	</Button>
 	<Button variant="outline" size="sm" onclick={onSaveAs}>
 		<Save class="size-4" />
-		Speichern unter...
+		<span class="hidden sm:inline">Speichern unter...</span>
 	</Button>
 	<Button variant="outline" size="sm" onclick={onClose}>
 		<LogOut class="size-4" />
-		Schließen
+		<span class="hidden sm:inline">Schließen</span>
 	</Button>
 </div>

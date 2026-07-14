@@ -16,32 +16,28 @@
 	let stats = $state({ total: 0, due: 0, learned: 0, newCards: 0 });
 	let error: string | null = $state(null);
 	let fsaSupported = $state(false);
+	let pendingHandle: FileSystemFileHandle | null = $state(null);
 
 	onMount(async () => {
 		fsaSupported = 'showDirectoryPicker' in window || 'showOpenFilePicker' in window;
 		try {
 			await initDatabase(base);
 			const handle = await loadHandle();
+			if (handle && typeof handle.queryPermission !== 'function') {
+				await setHandle(null);
+				appState = await checkLegacy();
+				return;
+			}
 			if (handle) {
 				const permission = await handle.queryPermission({ mode: 'readwrite' });
 				if (permission === 'granted') {
-					const data = await readFile(handle);
-					await reloadDatabase(data);
-					await setHandle(handle);
-					stats = getStats();
-					appState = 'ready';
+					await loadFromHandle(handle);
+				} else if (permission === 'prompt') {
+					pendingHandle = handle;
+					appState = 'permission-needed';
 				} else {
-					const result = await handle.requestPermission({ mode: 'readwrite' });
-					if (result === 'granted') {
-						const data = await readFile(handle);
-						await reloadDatabase(data);
-						await setHandle(handle);
-						stats = getStats();
-						appState = 'ready';
-					} else {
-						await setHandle(null);
-						appState = await checkLegacy();
-					}
+					await setHandle(null);
+					appState = await checkLegacy();
 				}
 			} else {
 				appState = await checkLegacy();
@@ -51,6 +47,32 @@
 			appState = 'error';
 		}
 	});
+
+	async function loadFromHandle(handle: FileSystemFileHandle) {
+		const data = await readFile(handle);
+		await reloadDatabase(data);
+		await setHandle(handle);
+		stats = getStats();
+		appState = 'ready';
+		pendingHandle = null;
+	}
+
+	async function handleGrantPermission() {
+		if (!pendingHandle) return;
+		try {
+			const permission = await pendingHandle.requestPermission({ mode: 'readwrite' });
+			if (permission === 'granted') {
+				await loadFromHandle(pendingHandle);
+			} else {
+				await setHandle(null);
+				pendingHandle = null;
+				appState = await checkLegacy();
+			}
+		} catch (e) {
+			error = String(e);
+			appState = 'error';
+		}
+	}
 
 	async function checkLegacy(): Promise<AppState> {
 		const legacy = await loadLegacyData();
@@ -170,6 +192,19 @@
 			</Button>
 		</div>
 	</div>
+{:else if appState === 'permission-needed'}
+	<div class="mx-auto flex max-w-md flex-col items-center gap-6 py-16 text-center">
+		<Database class="size-16 text-blue-500" />
+		<h2 class="text-xl font-bold">Berechtigung erforderlich</h2>
+		<p class="text-muted-foreground">
+			Der Vokabeltrainer benötigt Zugriff auf die zuletzt geöffnete Datei.
+			Klicke auf den Button, um die Berechtigung zu erteilen.
+		</p>
+		<Button onclick={handleGrantPermission}>
+			<FolderOpen class="size-4" />
+			Zugriff erlauben
+		</Button>
+	</div>
 {:else if appState === 'file-picker'}
 	<div class="mx-auto flex max-w-md flex-col items-center gap-6 py-16 text-center">
 		<Database class="size-16 text-blue-500" />
@@ -195,12 +230,14 @@
 		</div>
 	</div>
 {:else if appState === 'ready'}
-	<div class="mb-6 flex items-center justify-between">
+	<div class="mb-6 sm:flex sm:items-center sm:justify-between">
 		<div>
 			<h1 class="text-2xl font-bold">Dashboard</h1>
 			<p class="text-muted-foreground mt-1">Willkommen beim Vokabeltrainer</p>
 		</div>
-		<FileActions onNew={handleNew} onOpen={handleOpen} onSaveAs={handleSaveAs} onClose={handleClose} />
+		<div class="mt-3 sm:mt-0">
+			<FileActions onNew={handleNew} onOpen={handleOpen} onSaveAs={handleSaveAs} onClose={handleClose} />
+		</div>
 		{#if !fsaSupported}
 			<div class="bg-destructive/10 text-destructive border-destructive/20 mt-3 rounded-xl border p-3 text-xs">
 				Datei-Funktionen nicht verfügbar – bitte Chrome/Edge verwenden.
