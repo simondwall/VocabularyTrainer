@@ -5,7 +5,7 @@
 	import { Input } from '$lib/components/ui/input';
 	import { Textarea } from '$lib/components/ui/textarea';
 	import TagInput from '$lib/components/TagInput.svelte';
-	import { initDatabase, getCard, updateCard, getAllTags } from '$lib/db/database';
+	import { initDatabase, getCard, updateCard, getAllTags, getHandle } from '$lib/db/database';
 	import { base } from '$app/paths';
 	import { goto } from '$app/navigation';
 	import { ChevronLeft, Save } from '@lucide/svelte';
@@ -25,6 +25,10 @@
 	onMount(async () => {
 		try {
 			await initDatabase(base);
+			if (!getHandle()) {
+				goto(base);
+				return;
+			}
 			const card = getCard(cardId);
 			if (card) {
 				front = card.front;

@@ -3,54 +3,209 @@
 	import { Button } from '$lib/components/ui/button';
 	import { Card as CardUI, CardContent, CardDescription, CardHeader, CardTitle } from '$lib/components/ui/card';
 	import FileActions from '$lib/components/FileActions.svelte';
-	import { getStats } from '$lib/db/database';
-	import { initDatabase, exportDatabase, importDatabase } from '$lib/db/database';
+	import {
+		initDatabase, reloadDatabase, setHandle, getHandle, exportDatabase,
+		getStats, closeAndReset, writeFile,
+		loadHandle, readFile, loadLegacyData, removeLegacyData
+	} from '$lib/db/database';
 	import { base } from '$app/paths';
-	import type { Stats } from '$lib/types';
-	import { BookOpen, Brain, TrendingUp } from '@lucide/svelte';
+	import type { AppState } from '$lib/types';
+	import { BookOpen, Brain, TrendingUp, Database, FileUp, FolderOpen } from '@lucide/svelte';
 
-	let stats = $state<Stats>({ total: 0, due: 0, learned: 0, newCards: 0 });
-	let ready = $state(false);
-	let error = $state<string | null>(null);
+	let appState: AppState = $state('loading');
+	let stats = $state({ total: 0, due: 0, learned: 0, newCards: 0 });
+	let error: string | null = $state(null);
+	let fsaSupported = $state(false);
 
 	onMount(async () => {
+		fsaSupported = 'showDirectoryPicker' in window || 'showOpenFilePicker' in window;
 		try {
 			await initDatabase(base);
-			stats = getStats();
-			ready = true;
+			const handle = await loadHandle();
+			if (handle) {
+				const permission = await handle.queryPermission({ mode: 'readwrite' });
+				if (permission === 'granted') {
+					const data = await readFile(handle);
+					await reloadDatabase(data);
+					await setHandle(handle);
+					stats = getStats();
+					appState = 'ready';
+				} else {
+					const result = await handle.requestPermission({ mode: 'readwrite' });
+					if (result === 'granted') {
+						const data = await readFile(handle);
+						await reloadDatabase(data);
+						await setHandle(handle);
+						stats = getStats();
+						appState = 'ready';
+					} else {
+						await setHandle(null);
+						appState = await checkLegacy();
+					}
+				}
+			} else {
+				appState = await checkLegacy();
+			}
 		} catch (e) {
 			error = String(e);
+			appState = 'error';
 		}
 	});
+
+	async function checkLegacy(): Promise<AppState> {
+		const legacy = await loadLegacyData();
+		return legacy ? 'migration' : 'file-picker';
+	}
+
+	async function handleNew() {
+		try {
+			const handle = await window.showSaveFilePicker({
+				suggestedName: 'vokabel_trainer.sqlite',
+				types: [{ description: 'SQLite Database', accept: { 'application/vnd.sqlite3': ['.sqlite'] } }]
+			});
+			await reloadDatabase(new Uint8Array(0));
+			await setHandle(handle);
+			stats = getStats();
+			appState = 'ready';
+		} catch (e) {
+			if ((e as DOMException).name === 'AbortError') return;
+			error = String(e);
+			appState = 'error';
+		}
+	}
+
+	async function handleOpen() {
+		try {
+			const [handle] = await window.showOpenFilePicker({
+				types: [{ description: 'SQLite Database', accept: { 'application/vnd.sqlite3': ['.sqlite'] } }]
+			});
+			const data = await readFile(handle);
+			await reloadDatabase(data);
+			await setHandle(handle);
+			stats = getStats();
+			appState = 'ready';
+		} catch (e) {
+			if ((e as DOMException).name === 'AbortError') return;
+			error = String(e);
+			appState = 'error';
+		}
+	}
+
+	async function handleSaveAs() {
+		try {
+			const data = exportDatabase();
+			if (!data) return;
+			const handle = await window.showSaveFilePicker({
+				suggestedName: 'vokabel_trainer.sqlite',
+				types: [{ description: 'SQLite Database', accept: { 'application/vnd.sqlite3': ['.sqlite'] } }]
+			});
+			await writeFile(handle, data);
+		} catch (e) {
+			if ((e as DOMException).name === 'AbortError') return;
+			error = String(e);
+			appState = 'error';
+		}
+	}
+
+	async function handleClose() {
+		closeAndReset();
+		await initDatabase(base);
+		appState = 'file-picker';
+	}
+
+	async function handleMigrate() {
+		const legacy = await loadLegacyData();
+		if (!legacy) return;
+		try {
+			const handle = await window.showSaveFilePicker({
+				suggestedName: 'vokabel_trainer.sqlite',
+				types: [{ description: 'SQLite Database', accept: { 'application/vnd.sqlite3': ['.sqlite'] } }]
+			});
+			await writeFile(handle, legacy);
+			await reloadDatabase(legacy);
+			await setHandle(handle);
+			await removeLegacyData();
+			stats = getStats();
+			appState = 'ready';
+		} catch (e) {
+			if ((e as DOMException).name === 'AbortError') return;
+			error = String(e);
+			appState = 'error';
+		}
+	}
+
+	async function handleDiscardLegacy() {
+		await removeLegacyData();
+		appState = 'file-picker';
+	}
 
 	function refreshStats() {
 		stats = getStats();
 	}
-
-	async function handleImport(data: Uint8Array) {
-		await importDatabase(data);
-		refreshStats();
-	}
-
-	function handleExport() {
-		return exportDatabase();
-	}
 </script>
 
-{#if error}
+{#if appState === 'error'}
 	<div class="flex flex-col items-center gap-4 py-16">
-		<p class="text-destructive text-lg font-medium">Fehler beim Initialisieren</p>
+		<p class="text-destructive text-lg font-medium">Fehler</p>
 		<p class="text-muted-foreground text-sm">{error}</p>
+		<Button variant="outline" onclick={() => appState = 'file-picker'}>Zurück</Button>
 	</div>
-{:else if !ready}
+{:else if appState === 'loading'}
 	<p class="text-muted-foreground py-16 text-center">Datenbank wird initialisiert...</p>
-{:else}
+{:else if appState === 'migration'}
+	<div class="mx-auto flex max-w-md flex-col items-center gap-6 py-16 text-center">
+		<Database class="size-12 text-blue-500" />
+		<h2 class="text-xl font-bold">Vorhandene Daten gefunden</h2>
+		<p class="text-muted-foreground">
+			Es wurden Daten aus einer früheren Version gefunden.
+			Speichere sie in einer Datei, um sie weiterzunutzen.
+		</p>
+		<div class="flex gap-3">
+			<Button onclick={handleMigrate}>
+				<FileUp class="size-4" />
+				In Datei speichern
+			</Button>
+			<Button variant="outline" onclick={handleDiscardLegacy}>
+				Verwerfen
+			</Button>
+		</div>
+	</div>
+{:else if appState === 'file-picker'}
+	<div class="mx-auto flex max-w-md flex-col items-center gap-6 py-16 text-center">
+		<Database class="size-16 text-blue-500" />
+		<h1 class="text-2xl font-bold">Vokabeltrainer</h1>
+		{#if !fsaSupported}
+			<div class="bg-destructive/10 text-destructive border-destructive/20 rounded-xl border p-4 text-sm">
+				Dein Browser unterstützt die File System Access API nicht.
+				Bitte verwende Chrome, Edge oder einen anderen Chromium-basierten Browser.
+			</div>
+		{/if}
+		<p class="text-muted-foreground">
+			Wähle eine vorhandene Vokabeldatenbank oder erstelle eine neue.
+		</p>
+		<div class="flex gap-3">
+			<Button onclick={handleNew} disabled={!fsaSupported}>
+				<Database class="size-4" />
+				Neue Datenbank
+			</Button>
+			<Button variant="outline" onclick={handleOpen} disabled={!fsaSupported}>
+				<FolderOpen class="size-4" />
+				Vorhandene öffnen
+			</Button>
+		</div>
+	</div>
+{:else if appState === 'ready'}
 	<div class="mb-6 flex items-center justify-between">
 		<div>
 			<h1 class="text-2xl font-bold">Dashboard</h1>
 			<p class="text-muted-foreground mt-1">Willkommen beim Vokabeltrainer</p>
 		</div>
-		<FileActions onImport={handleImport} onExport={handleExport} />
+		<FileActions onNew={handleNew} onOpen={handleOpen} onSaveAs={handleSaveAs} onClose={handleClose} />
+		{#if !fsaSupported}
+			<div class="bg-destructive/10 text-destructive border-destructive/20 mt-3 rounded-xl border p-3 text-xs">
+				Datei-Funktionen nicht verfügbar – bitte Chrome/Edge verwenden.
+			</div>
+		{/if}
 	</div>
 
 	<div class="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">

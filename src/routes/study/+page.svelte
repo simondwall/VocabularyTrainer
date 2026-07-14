@@ -3,8 +3,9 @@
 	import { Button } from '$lib/components/ui/button';
 	import CardView from '$lib/components/CardView.svelte';
 	import RatingButtons from '$lib/components/RatingButtons.svelte';
-	import { initDatabase, getDueCards, reviewCard } from '$lib/db/database';
+	import { initDatabase, getDueCards, reviewCard, getHandle } from '$lib/db/database';
 	import { base } from '$app/paths';
+	import { goto } from '$app/navigation';
 	import type { Card, Rating } from '$lib/types';
 	import { ChevronLeft } from '@lucide/svelte';
 
@@ -18,6 +19,10 @@
 	onMount(async () => {
 		try {
 			await initDatabase(base);
+			if (!getHandle()) {
+				goto(base);
+				return;
+			}
 			cards = getDueCards();
 			if (cards.length === 0) {
 				finished = true;

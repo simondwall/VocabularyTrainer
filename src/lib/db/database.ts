@@ -1,25 +1,15 @@
 import initSqlJs, { type Database as SqlJsDatabase } from 'sql.js';
 import { sm2 } from './sm2';
-import { saveToIndexedDB, loadFromIndexedDB } from './storage';
+import { saveHandle, loadHandle, removeHandle, readFile, writeFile, loadLegacyData, removeLegacyData } from './storage';
 import type { Card, Rating, Stats } from '$lib/types';
 
 let SQL: Awaited<ReturnType<typeof initSqlJs>> | null = null;
 let db: SqlJsDatabase | null = null;
 let initPromise: Promise<void> | null = null;
-let saveTimeout: ReturnType<typeof setTimeout> | null = null;
-
-function scheduleSave() {
-	if (saveTimeout) clearTimeout(saveTimeout);
-	saveTimeout = setTimeout(async () => {
-		if (db) {
-			const data = db.export();
-			await saveToIndexedDB(data);
-		}
-	}, 500);
-}
+let currentHandle: FileSystemFileHandle | null = null;
 
 export async function initDatabase(basePath?: string): Promise<void> {
-	if (db) return;
+	if (SQL && db) return;
 	if (initPromise) return initPromise;
 
 	const wasmBase = (basePath || '').replace(/\/$/, '');
@@ -28,19 +18,8 @@ export async function initDatabase(basePath?: string): Promise<void> {
 		SQL = await initSqlJs({
 			locateFile: (file) => `${wasmBase}/${file}`
 		});
-
-		const saved = await loadFromIndexedDB();
-		if (saved) {
-			db = new SQL.Database(saved);
-		} else {
-			db = new SQL.Database();
-		}
-
-		if (!tableExists('cards')) {
-			createSchema();
-		}
-		migrateSchema();
-		scheduleSave();
+		db = new SQL.Database();
+		createSchema();
 	})();
 
 	try {
@@ -49,6 +28,48 @@ export async function initDatabase(basePath?: string): Promise<void> {
 		initPromise = null;
 		throw e;
 	}
+}
+
+export async function reloadDatabase(data: Uint8Array): Promise<void> {
+	if (!SQL) throw new Error('SQL.js not initialized');
+	if (db) db.close();
+	db = new SQL.Database(data);
+	if (!tableExists('cards')) {
+		createSchema();
+	}
+	migrateSchema();
+}
+
+export async function setHandle(handle: FileSystemFileHandle | null): Promise<void> {
+	currentHandle = handle;
+	if (handle) {
+		await saveHandle(handle);
+	} else {
+		await removeHandle();
+	}
+}
+
+export function getHandle(): FileSystemFileHandle | null {
+	return currentHandle;
+}
+
+export async function saveToFile(): Promise<void> {
+	if (!db || !currentHandle) return;
+	const data = db.export();
+	await writeFile(currentHandle, data);
+}
+
+export function exportDatabase(): Uint8Array | null {
+	if (!db) return null;
+	return db.export();
+}
+
+export function closeAndReset(): void {
+	if (db) db.close();
+	db = null;
+	initPromise = null;
+	currentHandle = null;
+	SQL = null;
 }
 
 function tableExists(name: string): boolean {
@@ -207,7 +228,7 @@ export function addCard(front: string, back: string, tags: string[]): number {
 	db.run('INSERT INTO cards (front, back) VALUES (?, ?)', [front, back]);
 	const id = (db.exec('SELECT last_insert_rowid() as id')[0].values[0][0] as number);
 	syncCardTags(id, tags);
-	scheduleSave();
+	saveToFile();
 	return id;
 }
 
@@ -218,14 +239,14 @@ export function updateCard(id: number, front: string, back: string, tags: string
 		[front, back, id]
 	);
 	syncCardTags(id, tags);
-	scheduleSave();
+	saveToFile();
 }
 
 export function deleteCard(id: number): void {
 	if (!db) return;
 	db.run('DELETE FROM card_tags WHERE card_id = ?', [id]);
 	db.run('DELETE FROM cards WHERE id = ?', [id]);
-	scheduleSave();
+	saveToFile();
 }
 
 export function reviewCard(id: number, rating: Rating): void {
@@ -238,7 +259,7 @@ export function reviewCard(id: number, rating: Rating): void {
 		"UPDATE cards SET ease = ?, interval = ?, repetitions = ?, due_date = ?, updated_at = datetime('now') WHERE id = ?",
 		[result.ease, result.interval, result.repetitions, result.due_date, id]
 	);
-	scheduleSave();
+	saveToFile();
 }
 
 export function getStats(): Stats {
@@ -267,21 +288,4 @@ export function getAllTags(): string[] {
 	return result[0].values.map((r) => r[0] as string);
 }
 
-export function exportDatabase(): Uint8Array | null {
-	if (!db) return null;
-	return db.export();
-}
-
-export async function importDatabase(data: Uint8Array): Promise<void> {
-	if (!SQL) throw new Error('Database not initialized');
-	db = new SQL.Database(data);
-	if (!tableExists('cards')) {
-		createSchema();
-	}
-	migrateSchema();
-	scheduleSave();
-}
-
-export function closeDatabase(): void {
-	if (db) db.close();
-}
+export { loadHandle, removeHandle, readFile, writeFile, loadLegacyData, removeLegacyData };

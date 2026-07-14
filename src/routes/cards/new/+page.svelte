@@ -5,7 +5,7 @@
 	import { Input } from '$lib/components/ui/input';
 	import { Textarea } from '$lib/components/ui/textarea';
 	import TagInput from '$lib/components/TagInput.svelte';
-	import { initDatabase, addCard, getAllTags } from '$lib/db/database';
+	import { initDatabase, addCard, getAllTags, getHandle } from '$lib/db/database';
 	import { base } from '$app/paths';
 	import { goto } from '$app/navigation';
 	import { ChevronLeft, Save } from '@lucide/svelte';
@@ -21,6 +21,10 @@
 	onMount(async () => {
 		try {
 			await initDatabase(base);
+			if (!getHandle()) {
+				goto(base);
+				return;
+			}
 			allTags = getAllTags();
 			ready = true;
 		} catch (e) {

@@ -19,3 +19,5 @@ export interface Stats {
 	learned: number;
 	newCards: number;
 }
+
+export type AppState = 'loading' | 'file-picker' | 'migration' | 'ready' | 'error';

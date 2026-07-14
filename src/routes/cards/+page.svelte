@@ -2,8 +2,9 @@
 	import { onMount } from 'svelte';
 	import { Button } from '$lib/components/ui/button';
 	import { Badge } from '$lib/components/ui/badge';
-	import { initDatabase, getAllCards, deleteCard } from '$lib/db/database';
+	import { initDatabase, getAllCards, deleteCard, getHandle } from '$lib/db/database';
 	import { base } from '$app/paths';
+	import { goto } from '$app/navigation';
 	import type { Card } from '$lib/types';
 	import { Plus, Edit, Trash2 } from '@lucide/svelte';
 
@@ -14,6 +15,10 @@
 	onMount(async () => {
 		try {
 			await initDatabase(base);
+			if (!getHandle()) {
+				goto(base);
+				return;
+			}
 			cards = getAllCards();
 			ready = true;
 		} catch (e) {
