@@ -7,7 +7,7 @@ const config = {
 			fallback: '404.html'
 		}),
 		paths: {
-			base: process.env.NODE_ENV === 'production' ? '/vokabel_trainer' : ''
+			base: process.env.NODE_ENV === 'production' ? '/VocabularyTrainer' : ''
 		},
 		prerender: {
 			handleUnseenRoutes: 'ignore'
